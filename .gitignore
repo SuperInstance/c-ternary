@@ -1,0 +1,4 @@
+test_ternary
+*.o
+*.out
+.DS_Store
