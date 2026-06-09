@@ -163,6 +163,101 @@ bool ct_equals(ct_trit_t a, ct_trit_t b);
 ct_trit_t ct_from_int(int v);
 
 /* ------------------------------------------------------------------ */
+/*  Vector Operations (element-wise on trit arrays)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ct_and_vec — Element-wise ternary AND on two trit vectors.
+ * Both a and b must have length n. Result written to out (may alias a or b).
+ */
+void ct_and_vec(const ct_trit_t *a, const ct_trit_t *b, ct_trit_t *out, int n);
+
+/**
+ * ct_or_vec — Element-wise ternary OR on two trit vectors.
+ */
+void ct_or_vec(const ct_trit_t *a, const ct_trit_t *b, ct_trit_t *out, int n);
+
+/**
+ * ct_neg_vec — Element-wise negation of a trit vector.
+ */
+void ct_neg_vec(const ct_trit_t *vec, ct_trit_t *out, int n);
+
+/**
+ * ct_sum — Integer sum of all trits in a vector.
+ * Returns Σ vec[i] (as an int, not clamped to trit range).
+ */
+int ct_sum(const ct_trit_t *vec, int n);
+
+/**
+ * ct_dot — Ternary dot product: Σ a[i] * b[i]
+ * Returns integer (not clamped to trit range).
+ */
+int ct_dot(const ct_trit_t *a, const ct_trit_t *b, int n);
+
+/**
+ * ct_norm — L1 norm (count of non-zero trits).
+ */
+int ct_norm(const ct_trit_t *vec, int n);
+
+/**
+ * ct_distance — Hamming-style distance: count of positions where a[i] != b[i].
+ */
+int ct_distance(const ct_trit_t *a, const ct_trit_t *b, int n);
+
+/* ------------------------------------------------------------------ */
+/*  I2I Wire Packing — encode/decode trit vectors for fleet transport */
+/* ------------------------------------------------------------------ */
+
+/** Maximum trits in a single I2I packet (2^32-1 practically unlimited). */
+#define CT_I2I_MAX_TRITS 0x7FFFFFFF
+
+/** I2I version byte (bump on wire format change). */
+#define CT_I2I_VERSION 1
+
+/**
+ * ct_i2i_header_size — Total header size in bytes for I2I wire format.
+ *     [version:1B][trit_count:4B LE] = 5 bytes
+ */
+#define CT_I2I_HEADER_SIZE 5
+
+/**
+ * ct_i2i_payload_size — Compute payload bytes needed for n trits.
+ * Each trit = 2 bits → ceil(n * 2 / 8) bytes.
+ */
+int ct_i2i_payload_size(int n);
+
+/**
+ * ct_pack_trits — Pack trit vector into I2I wire format.
+ *
+ * Wire format:
+ *   [version:1B][trit_count:4B LE][payload:ceil(n*2/8)B]
+ *
+ * Encoding per trit (2 bits, LSB first in each byte):
+ *   CT_TRIT_NEG → 00
+ *   CT_TRIT_ZERO→ 01
+ *   CT_TRIT_POS → 10
+ *   2 (reserved)→ 11
+ *
+ * @param trits    Input trit vector (length n)
+ * @param n        Number of trits
+ * @param out      Output buffer (must be >= CT_I2I_HEADER_SIZE + ct_i2i_payload_size(n))
+ * @param out_len  Size of output buffer
+ * @return Total bytes written, or -1 on error.
+ */
+int ct_pack_trits(const ct_trit_t *trits, int n, uint8_t *out, int out_len);
+
+/**
+ * ct_unpack_trits — Unpack I2I wire format back to trit vector.
+ *
+ * @param data     Input wire bytes
+ * @param data_len Length of input bytes
+ * @param out      Output trit buffer (must be >= header.trit_count)
+ * @param out_len  Size of output buffer
+ * @return Number of trits unpacked, or -1 on error.
+ */
+int ct_unpack_trits(const uint8_t *data, int data_len, ct_trit_t *out, int out_len);
+
+/* ------------------------------------------------------------------ */
 /*  Utility / Pretty-printing                                         */
 /* ------------------------------------------------------------------ */
 
@@ -299,6 +394,146 @@ ct_trit_t ct_from_char(char c)
     case '+': case 'P': case 'p': return CT_TRIT_POS;
     default:                      return CT_TRIT_ZERO;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Vector Operations                                                  */
+/* ------------------------------------------------------------------ */
+
+void ct_and_vec(const ct_trit_t *a, const ct_trit_t *b, ct_trit_t *out, int n)
+{
+    for (int i = 0; i < n; i++) {
+        out[i] = ct_and(a[i], b[i]);
+    }
+}
+
+void ct_or_vec(const ct_trit_t *a, const ct_trit_t *b, ct_trit_t *out, int n)
+{
+    for (int i = 0; i < n; i++) {
+        out[i] = ct_or(a[i], b[i]);
+    }
+}
+
+void ct_neg_vec(const ct_trit_t *vec, ct_trit_t *out, int n)
+{
+    for (int i = 0; i < n; i++) {
+        out[i] = ct_not(vec[i]);
+    }
+}
+
+int ct_sum(const ct_trit_t *vec, int n)
+{
+    int s = 0;
+    for (int i = 0; i < n; i++) {
+        s += (int)vec[i];
+    }
+    return s;
+}
+
+int ct_dot(const ct_trit_t *a, const ct_trit_t *b, int n)
+{
+    int s = 0;
+    for (int i = 0; i < n; i++) {
+        s += (int)a[i] * (int)b[i];
+    }
+    return s;
+}
+
+int ct_norm(const ct_trit_t *vec, int n)
+{
+    int c = 0;
+    for (int i = 0; i < n; i++) {
+        if (vec[i] != CT_TRIT_ZERO) c++;
+    }
+    return c;
+}
+
+int ct_distance(const ct_trit_t *a, const ct_trit_t *b, int n)
+{
+    int d = 0;
+    for (int i = 0; i < n; i++) {
+        if (a[i] != b[i]) d++;
+    }
+    return d;
+}
+
+/* ------------------------------------------------------------------ */
+/*  I2I Wire Packing                                                   */
+/* ------------------------------------------------------------------ */
+
+int ct_i2i_payload_size(int n)
+{
+    if (n < 0) return 0;
+    return (n * 2 + 7) / 8;  /* ceil(n*2/8) */
+}
+
+int ct_pack_trits(const ct_trit_t *trits, int n, uint8_t *out, int out_len)
+{
+    if (!trits || !out || n < 0 || n > CT_I2I_MAX_TRITS) return -1;
+
+    int payload = ct_i2i_payload_size(n);
+    int total = CT_I2I_HEADER_SIZE + payload;
+    if (out_len < total) return -1;
+
+    /* Write header */
+    out[0] = CT_I2I_VERSION;
+    out[1] = (uint8_t)(n & 0xFF);
+    out[2] = (uint8_t)((n >> 8) & 0xFF);
+    out[3] = (uint8_t)((n >> 16) & 0xFF);
+    out[4] = (uint8_t)((n >> 24) & 0xFF);
+
+    /* Pack trits: 2 bits per trit, LSB first */
+    for (int i = 0; i < n; i++) {
+        int byte_idx = CT_I2I_HEADER_SIZE + (i / 4);
+        int bit_shift = (i % 4) * 2;
+        uint8_t bits;
+        switch (trits[i]) {
+            case CT_TRIT_NEG:  bits = 0x00; break;
+            case CT_TRIT_ZERO: bits = 0x01; break;
+            case CT_TRIT_POS:  bits = 0x02; break;
+            default:           bits = 0x03; break;  /* reserved */
+        }
+        out[byte_idx] |= (bits << bit_shift);
+    }
+
+    return total;
+}
+
+int ct_unpack_trits(const uint8_t *data, int data_len, ct_trit_t *out, int out_len)
+{
+    if (!data || !out) return -1;
+    if (data_len < CT_I2I_HEADER_SIZE) return -1;
+
+    /* Check version */
+    if (data[0] != CT_I2I_VERSION) return -1;
+
+    /* Read trit count (32-bit LE) */
+    int n = (int)data[1]
+          | ((int)data[2] << 8)
+          | ((int)data[3] << 16)
+          | ((int)data[4] << 24);
+
+    if (n < 0 || n > CT_I2I_MAX_TRITS) return -1;
+    if (out_len < n) return -1;
+
+    int payload = ct_i2i_payload_size(n);
+    if (data_len < CT_I2I_HEADER_SIZE + payload) return -1;
+
+    /* Unpack trits */
+    const uint8_t *payload_start = data + CT_I2I_HEADER_SIZE;
+    for (int i = 0; i < n; i++) {
+        int byte_idx = i / 4;
+        int bit_shift = (i % 4) * 2;
+        uint8_t bits = (payload_start[byte_idx] >> bit_shift) & 0x03;
+        switch (bits) {
+            case 0x00: out[i] = CT_TRIT_NEG;  break;
+            case 0x01: out[i] = CT_TRIT_ZERO; break;
+            case 0x02: out[i] = CT_TRIT_POS;  break;
+            default:   out[i] = CT_TRIT_ZERO; break;  /* reserved → ZERO */
+        }
+    }
+
+    return n;
 }
 
 #endif /* C_TERNARY_IMPL */
